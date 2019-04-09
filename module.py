@@ -2,8 +2,10 @@ import brickpi3
 import grovepi
 import time
 import numpy as np
-from math import pi,sqrt,atan2,sin,cos
-from IR_Functions import *
+import IMU_Setup as mag
+from math import pi, sqrt, atan2, sin, cos
+from IR_Functions import IR_Read
+from IMUFilters import genWindow, WindowFilterDyn, InvGaussFilter
 
 '''
 Notes:
@@ -49,15 +51,19 @@ angle_kI = 1.5
 kRot = 4.8 #paper: 4.8   URSC table = 4.8
 
 #Mapping Init
-notes = 'This is a map of the maze'
-origin = [0,2] #stored in grid points. [x,y]
-n=8 #length of each side on the map
+notes = 'This is a map of the maze.'
+origin = [0,0] #stored in grid points. [x,y]
+map_size = 8 #length of each side on the map
 prev_encoder = 0
 
 #initialize the map and the origin
-map = np.zeros((n,n),np.int8)
-map[n-1-origin[1]][origin[0]] = 5
+map = np.zeros((map_size,map_size),np.int8)
 currLoc = [[origin[0],origin[1]],[origin[0]*conversion,origin[1]*conversion]] #stored in [grid points, cm]
+
+#IMU Setup
+accelx=genWindow(mag.width,0)
+accely=genWindow(mag.width,0)
+accelz=genWindow(mag.width,0)
 
 #sensor setup
 gyro_port = BP.PORT_4
@@ -83,7 +89,6 @@ def rotateStatic(dir, angle=90):
     # r is right, l is left
     I = 0
     gyro = readGyro()
-    gyro[0] = gyro[0]
     global rotTotal
     try:
         if(dir == 'r'):
@@ -122,11 +127,13 @@ def navMaze():
             flag = 1 #for turning order. Fix.
             dist_right, dist_left, dist_front = readUltra()
             IR_sqrt = readIR()
+            magnet_data = readMagnet()
             BP.set_motor_position(BP.PORT_A, 64)
             
-            if(dist_left > turn_alert and dist_front > turn_alert - 10 and dist_right > turn_alert):
+            if(dist_left > turn_alert and dist_front > turn_alert - 5 and dist_right > turn_alert):
                 BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
-                map[currLoc[0][0]][currLoc[0][1]] = 4
+                map[map_size-1-origin[1]][origin[0]] = 5
+                map[map_size - 1 - currLoc[0][1]][currLoc[0][0]] = 4
                 printMap()
                 while(BP.get_motor_encoder(BP.PORT_A) < 99):
                     BP.set_motor_position(BP.PORT_A, 100)
@@ -135,23 +142,32 @@ def navMaze():
                 moveDist(move_b4_turn)
                 rotateStatic('l')
                 dist_left = grovepi.ultrasonicRead(us_left)
+                zeroEncoder()
                 while dist_left > turn_alert:
                     dist_left = grovepi.ultrasonicRead(us_left)
                     BP.set_motor_power(BP.PORT_C+BP.PORT_B,spd_front)
                     print('moving until sees lefthand wall')
+                angleInRad = (rotTotal % 360)*pi/180
+                direction = sin(angleInRad)
+                currLoc[1][int(abs(direction))] += BP.get_motor_encoder(BP.PORT_B)
                 BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
                 flag = 0
-            elif(!(dist_front < turn_alert-5) and !(IR_sqrt > IR_cutoff) and !((magnet_data['x'] > 87 and magnet_data['z'] > 0) or (magnet_data['x'] > 51 and magnet_data['z'] < 0))): #and if front is not blocked due to IR or magnet sensors
+            elif(dist_front > turn_alert-5 and IR_sqrt < IR_cutoff):
+            #elif(dist_front > turn_alert-5 and IR_sqrt < IR_cutoff and not((magnet_data['x'] > 87 and magnet_data['z'] > 0) or (magnet_data['x'] > 51 and magnet_data['z'] < 0))): #and if front is not blocked due to IR or magnet sensors
                 flag = 0
                 pass
             elif(dist_right > turn_alert):
                 moveDist(move_b4_turn)
                 rotateStatic('r')
                 dist_right = grovepi.ultrasonicRead(us_right)
+                zeroEncoder()
                 while dist_right > turn_alert:
                     dist_right = grovepi.ultrasonicRead(us_right)
                     BP.set_motor_power(BP.PORT_C+BP.PORT_B,spd_front)
                     print('moving until sees righthand wall')
+                angleInRad = (rotTotal % 360)*pi/180
+                direction = sin(angleInRad)
+                currLoc[1][int(abs(direction))] += BP.get_motor_encoder(BP.PORT_B)
                 BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
                 flag = 0
             elif(flag): #Or if front is blocked due to IR or magnet sensors
@@ -160,6 +176,7 @@ def navMaze():
                 #if front is blocked due to sources, update the map
                 #else just turn around
             
+            printMap()
             prev_encoder = mapUpdate(prev_encoder)
             gyro = readGyro()
             rightSideCorrection, leftSideCorrection = sideCorrect(dist_right, dist_left)
@@ -219,12 +236,15 @@ def moveDist(target_dist):
             BP.set_motor_power(BP.PORT_C, spd_front - angleCorrection)
             BP.set_motor_power(BP.PORT_B, spd_front + angleCorrection)
             motor_encoder = BP.get_motor_encoder(BP.PORT_B)
-            curr_dist = motor_encoder * pow(diam*2.54/2,2)*pi / 360
+            curr_dist = motor_encoder * diam * 2.54 * pi / 360
             print('distance remaining: %d' % e_front)
             time.sleep(dT)
     except KeyboardInterrupt:
         print('You pressed ctrl+c..')
         BP.reset_all()
+    angleInRad = (rotTotal % 360)*pi/180
+    direction = sin(angleInRad)
+    currLoc[1][int(abs(direction))] += target_dist
     BP.set_motor_power(BP.PORT_B+BP.PORT_C, 0)
 
 def turnToPt(currentX, currentY, targetX, targetY, currentAngle):
@@ -235,7 +255,7 @@ def turnToPt(currentX, currentY, targetX, targetY, currentAngle):
         rotateStatic('r', currentAngle - angle)
     return angle
 
-def readUltra(fake=0):
+def readUltra(fake = 0):
     if(not fake):
         dist_right = grovepi.ultrasonicRead(us_right)
         if(dist_right > 50):
@@ -249,16 +269,28 @@ def readUltra(fake=0):
         print("front: %2d right: %2d left: %2d" % (dist_front, dist_right, dist_left))
     return(dist_right, dist_left, dist_front)
 
-def readGyro(fake=0):
+def readGyro(fake = 0):
     if(not fake):
         gyro = BP.get_sensor(gyro_port)
+        print('gyro abs: %d' % (gyro[0]))
     return gyro
 
 def readIR(fake = 0):
     if(not fake):
         IR = IR_Read()
         IR_sqrt = IR[0]**0.5 + IR[1]**0.5
+        print('IR Sqrt: %d' % IR_sqrt)
     return IR_sqrt
+
+def readMagnet(fake = 0):
+    if(not fake):
+        accel_data = mag.mpu9250.readAccel()
+        magnet_data = mag.mpu9250.readMagnet()
+        magX=WindowFilterDyn(accelx,mag.dly,InvGaussFilter(mag.adv,accel_data['x'], mag.biases[0],mag.std[0],mag.count))
+        magY=WindowFilterDyn(accely,mag.dly,InvGaussFilter(mag.adv,accel_data['y'], mag.biases[1],mag.std[1],mag.count))
+        magZ=WindowFilterDyn(accelz,mag.dly,InvGaussFilter(mag.adv,accel_data['z'], mag.biases[2],mag.std[2],mag.count))
+        print(magnet_data)
+    return magnet_data
 
 def moveGrid(dir,bin,curr,target): #for dir, 0 is x, 1 is y. for bin, 0 is no sensor, 1 is sensor
     I = 0
@@ -316,13 +348,14 @@ def mapUpdate(prev_encoder):
     encoder = BP.get_motor_encoder(BP.PORT_B)
 
     if(direction != 0):
-        flipDir = direction
+        flipDir = -direction
     else:
         flipDir = cos(angleInRad)
 
-    currLoc[1][int(abs(direction))] += flipDir * (encoder - prev_encoder) * pow(diam*2.54/2,2)*pi / 360 / dT
-    currLoc[0] = [int(currLoc[1][1] / conversion), n-1-int(currLoc[1][0] / conversion)]
-    map[currLoc[0][0]][currLoc[0][1]] = 1
+    currLoc[1][int(abs(direction))] += flipDir * (encoder - prev_encoder) * diam * 2.54 * pi / 360
+    currLoc[0] = [int((currLoc[1][0] + 20) / conversion), int((currLoc[1][1] + 20) / conversion)]
+    map[map_size - 1 - currLoc[0][1]][currLoc[0][0]] = 1
+    print(currLoc)
     return encoder
 
 def printMap():
