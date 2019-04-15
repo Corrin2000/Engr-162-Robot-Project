@@ -33,8 +33,9 @@ conversion = 40 #40 cm per grid square
 front_border = 15
 side_border = 10
 turn_alert = 25
+turn_front_offset = 8
 IR_cutoff = 15
-move_b4_turn = 15
+move_b4_turn = 12
 '''
 Magnet is suposed to sense at 7 in away. Then should pull a uturn
 '''
@@ -105,6 +106,7 @@ def rotateStatic(dir, angle=90):
         rotTotal = target
         gyro = readGyro()
         print('gyro abs: %3d' % gyro[0])
+        zeroEncoder()
     except KeyboardInterrupt:
         print('You pressed ctrl+c..')
         BP.reset_all()
@@ -128,15 +130,16 @@ def navMaze():
             dist_right, dist_left, dist_front = readUltra()
             IR_sqrt = readIR()
             magnet_data = readMagnet()
-            BP.set_motor_position(BP.PORT_A, 64)
+            BP.set_motor_position(BP.PORT_A, 0)
             
-            if(dist_left > turn_alert and dist_front > turn_alert - 5 and dist_right > turn_alert):
+            if(dist_left > turn_alert and dist_front > turn_alert and dist_right > turn_alert):
                 BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
                 map[map_size-1-origin[1]][origin[0]] = 5
                 map[map_size - 1 - currLoc[0][1]][currLoc[0][0]] = 4
                 printMap()
-                while(BP.get_motor_encoder(BP.PORT_A) < 99):
-                    BP.set_motor_position(BP.PORT_A, 100)
+                while(BP.get_motor_encoder(BP.PORT_A) < 90):
+                    BP.set_motor_power(BP.PORT_A,20)
+                BP.set_motor_power(BP.PORT_A,0)
                 break
             elif(dist_left > turn_alert):
                 moveDist(move_b4_turn)
@@ -147,13 +150,12 @@ def navMaze():
                     dist_left = grovepi.ultrasonicRead(us_left)
                     BP.set_motor_power(BP.PORT_C+BP.PORT_B,spd_front)
                     print('moving until sees lefthand wall')
-                angleInRad = (rotTotal % 360)*pi/180
-                direction = sin(angleInRad)
-                currLoc[1][int(abs(direction))] += BP.get_motor_encoder(BP.PORT_B)
+                    printMap()
+                    prev_encoder = mapUpdate(prev_encoder)
                 BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
                 flag = 0
-            elif(dist_front > turn_alert-5 and IR_sqrt < IR_cutoff):
-            #elif(dist_front > turn_alert-5 and IR_sqrt < IR_cutoff and not((magnet_data['x'] > 87 and magnet_data['z'] > 0) or (magnet_data['x'] > 51 and magnet_data['z'] < 0))): #and if front is not blocked due to IR or magnet sensors
+            elif(dist_front > turn_alert-turn_front_offset):
+            #elif(dist_front > turn_alert-turn_front_offset and IR_sqrt < IR_cutoff and abs(magnet_data['z'] + 50) < 70):
                 flag = 0
                 pass
             elif(dist_right > turn_alert):
@@ -165,12 +167,11 @@ def navMaze():
                     dist_right = grovepi.ultrasonicRead(us_right)
                     BP.set_motor_power(BP.PORT_C+BP.PORT_B,spd_front)
                     print('moving until sees righthand wall')
-                angleInRad = (rotTotal % 360)*pi/180
-                direction = sin(angleInRad)
-                currLoc[1][int(abs(direction))] += BP.get_motor_encoder(BP.PORT_B)
+                    printMap()
+                    prev_encoder = mapUpdate(prev_encoder)
                 BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
                 flag = 0
-            elif(flag): #Or if front is blocked due to IR or magnet sensors
+            elif(flag):
                 rotateStatic('l')
                 rotateStatic('l')
                 #if front is blocked due to sources, update the map
@@ -227,6 +228,7 @@ def angleCorrect(gyroAbs):
 
 def moveDist(target_dist):
     zeroEncoder()
+    global prev_encoder
     curr_dist = 0
     try:
         while curr_dist < target_dist:
@@ -238,13 +240,12 @@ def moveDist(target_dist):
             motor_encoder = BP.get_motor_encoder(BP.PORT_B)
             curr_dist = motor_encoder * diam * 2.54 * pi / 360
             print('distance remaining: %d' % e_front)
+            printMap()
+            prev_encoder = mapUpdate(prev_encoder)
             time.sleep(dT)
     except KeyboardInterrupt:
         print('You pressed ctrl+c..')
         BP.reset_all()
-    angleInRad = (rotTotal % 360)*pi/180
-    direction = sin(angleInRad)
-    currLoc[1][int(abs(direction))] += target_dist
     BP.set_motor_power(BP.PORT_B+BP.PORT_C, 0)
 
 def turnToPt(currentX, currentY, targetX, targetY, currentAngle):
@@ -340,6 +341,7 @@ def gridAvoid(curr,distRemain):
 def zeroEncoder():
     global prev_encoder
     BP.offset_motor_encoder(BP.PORT_B, BP.get_motor_encoder(BP.PORT_B))
+    BP.offset_motor_encoder(BP.PORT_C, BP.get_motor_encoder(BP.PORT_C))
     prev_encoder = 0
 
 def mapUpdate(prev_encoder):
@@ -355,7 +357,7 @@ def mapUpdate(prev_encoder):
     currLoc[1][int(abs(direction))] += flipDir * (encoder - prev_encoder) * diam * 2.54 * pi / 360
     currLoc[0] = [int((currLoc[1][0] + 20) / conversion), int((currLoc[1][1] + 20) / conversion)]
     map[map_size - 1 - currLoc[0][1]][currLoc[0][0]] = 1
-    print(currLoc)
+    #print(currLoc)
     return encoder
 
 def printMap():
