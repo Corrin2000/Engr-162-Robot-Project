@@ -2,7 +2,6 @@ import brickpi3
 import grovepi
 import time
 import numpy as np
-import sensorClass
 import IMU_Setup as mag
 from math import pi, sqrt, atan2, sin, cos
 from IR_Functions import IR_Read
@@ -75,8 +74,6 @@ BP.set_sensor_type(us_front, BP.SENSOR_TYPE.EV3_ULTRASONIC_CM)
 us_right = 6
 us_left = 5
 
-sensors = sensorClass.sensorClass(0)
-
 #sensor warmup
 flag = 1
 while flag:
@@ -88,6 +85,9 @@ while flag:
         print('Warming up...')
         flag = 1
     time.sleep(dT)
+
+import sensorClass
+sensors = sensorClass.sensorClass(0)
 
 def rotateStatic(dir, angle=90):
     # r is right, l is left
@@ -129,8 +129,10 @@ def navMaze():
     global prev_encoder
     try:
         while True:
-            flag = 1 #for turning order. Fix.
-            [dist_right, dist_left, dist_front] = sensors.dataUltra
+            flag = 1
+            dist_right = sensors.dataUltra[0]
+            dist_left = sensors.dataUltra[1]
+            dist_front = sensors.dataUltra[2]
             IR_sqrt = sensors.dataIR
             magnet_data = sensors.dataMag
             BP.set_motor_position(BP.PORT_A, 0)

@@ -10,11 +10,16 @@ class sensorClass(object):
     def __init__(self, fake):
         self._timer     = None
         self.is_running = False
+
+        #data storage
+        '''
         self.dataUltra  = 0
         self.dataGyro   = 0
         self.dataIR     = 0
         self.dataMag    = 0
+        '''
         self.fake       = fake
+
         self.start()
 
     def _run(self):
