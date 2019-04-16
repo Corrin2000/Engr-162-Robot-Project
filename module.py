@@ -2,6 +2,7 @@ import brickpi3
 import grovepi
 import time
 import numpy as np
+import sensorClass
 import IMU_Setup as mag
 from math import pi, sqrt, atan2, sin, cos
 from IR_Functions import IR_Read
@@ -74,6 +75,8 @@ BP.set_sensor_type(us_front, BP.SENSOR_TYPE.EV3_ULTRASONIC_CM)
 us_right = 6
 us_left = 5
 
+sensors = sensorClass.sensorClass(0)
+
 #sensor warmup
 flag = 1
 while flag:
@@ -89,22 +92,22 @@ while flag:
 def rotateStatic(dir, angle=90):
     # r is right, l is left
     I = 0
-    gyro = readGyro()
+    gyro = sensors.dataGyro
     global rotTotal
     try:
         if(dir == 'r'):
             target = rotTotal + angle
             while gyro[0] < target:
-                gyro = readGyro()
+                gyro = sensors.dataGyro
                 I = rotateStaticSub(gyro, target, I)
         elif(dir=='l'):
             target = rotTotal - angle
             while gyro[0] > target:
-                gyro = readGyro()
+                gyro = sensors.dataGyro
                 I = rotateStaticSub(gyro, target, I)
         BP.set_motor_power(BP.PORT_B+BP.PORT_C,0)
         rotTotal = target
-        gyro = readGyro()
+        gyro = sensors.dataGyro
         print('gyro abs: %3d' % gyro[0])
         zeroEncoder()
     except KeyboardInterrupt:
@@ -127,9 +130,9 @@ def navMaze():
     try:
         while True:
             flag = 1 #for turning order. Fix.
-            dist_right, dist_left, dist_front = readUltra()
-            IR_sqrt = readIR()
-            magnet_data = readMagnet()
+            [dist_right, dist_left, dist_front] = sensors.dataUltra
+            IR_sqrt = sensors.dataIR
+            magnet_data = sensors.dataMag
             BP.set_motor_position(BP.PORT_A, 0)
             
             if(dist_left > turn_alert and dist_front > turn_alert and dist_right > turn_alert):
@@ -144,10 +147,10 @@ def navMaze():
             elif(dist_left > turn_alert):
                 moveDist(move_b4_turn)
                 rotateStatic('l')
-                dist_left = grovepi.ultrasonicRead(us_left)
+                dist_left = sensors.dataUltra[1]
                 zeroEncoder()
                 while dist_left > turn_alert:
-                    dist_left = grovepi.ultrasonicRead(us_left)
+                    dist_left = sensors.dataUltra[1]
                     BP.set_motor_power(BP.PORT_C+BP.PORT_B,spd_front)
                     print('moving until sees lefthand wall')
                     printMap()
@@ -161,10 +164,10 @@ def navMaze():
             elif(dist_right > turn_alert):
                 moveDist(move_b4_turn)
                 rotateStatic('r')
-                dist_right = grovepi.ultrasonicRead(us_right)
+                dist_right = sensors.dataUltra[0]
                 zeroEncoder()
                 while dist_right > turn_alert:
-                    dist_right = grovepi.ultrasonicRead(us_right)
+                    dist_right = sensors.dataUltra[0]
                     BP.set_motor_power(BP.PORT_C+BP.PORT_B,spd_front)
                     print('moving until sees righthand wall')
                     printMap()
@@ -183,7 +186,7 @@ def navMaze():
             
             printMap()
             prev_encoder = mapUpdate(prev_encoder)
-            gyro = readGyro()
+            gyro = sensors.dataGyro
             rightSideCorrection, leftSideCorrection = sideCorrect(dist_right, dist_left)
             angleCorrection = angleCorrect(gyro[0])
             print('speed: %d R_correct: %d L_correct: %d' % (spd_front, rightSideCorrection - angleCorrection, leftSideCorrection + angleCorrection))
@@ -237,7 +240,7 @@ def moveDist(target_dist):
     try:
         while curr_dist < target_dist:
             e_front = target_dist - curr_dist
-            gyro = readGyro()
+            gyro = sensors.dataGyro
             angleCorrection = angleCorrect(gyro[0])
             BP.set_motor_power(BP.PORT_C, spd_front - angleCorrection)
             BP.set_motor_power(BP.PORT_B, spd_front + angleCorrection)
@@ -260,49 +263,12 @@ def turnToPt(currentX, currentY, targetX, targetY, currentAngle):
         rotateStatic('r', currentAngle - angle)
     return angle
 
-def readUltra(fake = 0):
-    if(not fake):
-        dist_right = grovepi.ultrasonicRead(us_right)
-        if(dist_right > 50):
-            dist_right = 50
-        dist_left = grovepi.ultrasonicRead(us_left)
-        if(dist_left > 50):
-            dist_left = 50
-        dist_front = BP.get_sensor(us_front)
-        if(dist_front > 50):
-            dist_front = 50
-        print("front: %2d right: %2d left: %2d" % (dist_front, dist_right, dist_left))
-    return(dist_right, dist_left, dist_front)
-
-def readGyro(fake = 0):
-    if(not fake):
-        gyro = BP.get_sensor(gyro_port)
-        print('gyro abs: %d' % (gyro[0]))
-    return gyro
-
-def readIR(fake = 0):
-    if(not fake):
-        IR = IR_Read()
-        IR_sqrt = IR[0]**0.5 + IR[1]**0.5
-        print('IR Sqrt: %d' % IR_sqrt)
-    return IR_sqrt
-
-def readMagnet(fake = 0):
-    if(not fake):
-        accel_data = mag.mpu9250.readAccel()
-        magnet_data = mag.mpu9250.readMagnet()
-        magX=WindowFilterDyn(accelx,mag.dly,InvGaussFilter(mag.adv,accel_data['x'], mag.biases[0],mag.std[0],mag.count))
-        magY=WindowFilterDyn(accely,mag.dly,InvGaussFilter(mag.adv,accel_data['y'], mag.biases[1],mag.std[1],mag.count))
-        magZ=WindowFilterDyn(accelz,mag.dly,InvGaussFilter(mag.adv,accel_data['z'], mag.biases[2],mag.std[2],mag.count))
-        print(magnet_data)
-    return magnet_data
-
 def moveGrid(dir,bin,curr,target): #for dir, 0 is x, 1 is y. for bin, 0 is no sensor, 1 is sensor
     I = 0
     zeroEncoder()
     while curr[dir] < target[dir]:
         if(bin):
-            IR_data = IR_Read()
+            IR_data = sensors.dataIR
             AvgIR = (IR_data[0]+IR_data[1])/2
             print('One: %d Two: %d Avg: %d' % (IR_data[0], IR_data[1], AvgIR))
 
@@ -315,7 +281,7 @@ def moveGrid(dir,bin,curr,target): #for dir, 0 is x, 1 is y. for bin, 0 is no se
             BP.set_motor_power(BP.PORT_B+BP.PORT_C, 0)
             gridAvoid(curr,e)
         else:
-            gyro = readGyro()
+            gyro = sensors.dataGyro
             angleCorrection = angleCorrect(gyro[0])
             BP.set_motor_power(BP.PORT_C, spd - angleCorrection)
             BP.set_motor_power(BP.PORT_B, spd + angleCorrection)

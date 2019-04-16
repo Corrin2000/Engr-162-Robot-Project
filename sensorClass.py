@@ -6,7 +6,7 @@ from module import BP, dT, accelx, accely, accelz, us_front, us_left, us_right, 
 from IR_Functions import IR_Read
 from IMUFilters import genWindow, WindowFilterDyn, InvGaussFilter
 
-class sensors(object):
+class sensorClass(object):
     def __init__(self, fake):
         self._timer     = None
         self.is_running = False
@@ -46,20 +46,20 @@ class sensors(object):
             dist_front = BP.get_sensor(us_front)
             if(dist_front > 50):
                 dist_front = 50
-            print("front: %2d right: %2d left: %2d" % (dist_front, dist_right, dist_left))
+            #print("front: %2d right: %2d left: %2d" % (dist_front, dist_right, dist_left))
         self.dataUltra = [dist_right, dist_left, dist_front]
     
     def readGyro(self, fake = 0):
         if(not fake):
             gyro = BP.get_sensor(gyro_port)
-            print('gyro abs: %d' % (gyro[0]))
+            #print('gyro abs: %d' % (gyro[0]))
         self.dataGyro = gyro
 
     def readIR(self, fake = 0):
         if(not fake):
             IR = IR_Read()
             IR_sqrt = IR[0]**0.5 + IR[1]**0.5
-            print('IR Sqrt: %d' % IR_sqrt)
+            #print('IR Sqrt: %d' % IR_sqrt)
         self.dataIR = IR_sqrt
 
     def readMagnet(self, fake = 0):
@@ -69,5 +69,5 @@ class sensors(object):
             magX=WindowFilterDyn(accelx,mag.dly,InvGaussFilter(mag.adv,accel_data['x'], mag.biases[0],mag.std[0],mag.count))
             magY=WindowFilterDyn(accely,mag.dly,InvGaussFilter(mag.adv,accel_data['y'], mag.biases[1],mag.std[1],mag.count))
             magZ=WindowFilterDyn(accelz,mag.dly,InvGaussFilter(mag.adv,accel_data['z'], mag.biases[2],mag.std[2],mag.count))
-            print(magnet_data)
+            #print(magnet_data)
         self.dataMag = magnet_data
