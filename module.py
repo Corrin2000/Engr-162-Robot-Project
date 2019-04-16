@@ -134,7 +134,7 @@ def navMaze():
             
             if(dist_left > turn_alert and dist_front > turn_alert and dist_right > turn_alert):
                 BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
-                map[map_size-1-origin[1]][origin[0]] = 5
+                map[map_size - 1 - origin[1]][origin[0]] = 5
                 map[map_size - 1 - currLoc[0][1]][currLoc[0][0]] = 4
                 printMap()
                 while(BP.get_motor_encoder(BP.PORT_A) < 90):
@@ -154,8 +154,8 @@ def navMaze():
                     prev_encoder = mapUpdate(prev_encoder)
                 BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
                 flag = 0
-            elif(dist_front > turn_alert-turn_front_offset):
-            #elif(dist_front > turn_alert-turn_front_offset and IR_sqrt < IR_cutoff and abs(magnet_data['z'] + 50) < 70):
+            #elif(dist_front > turn_alert-turn_front_offset):
+            elif(dist_front > turn_alert-turn_front_offset and IR_sqrt < IR_cutoff and abs(magnet_data['z'] + 50) < 70):
                 flag = 0
                 pass
             elif(dist_right > turn_alert):
@@ -172,10 +172,14 @@ def navMaze():
                 BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
                 flag = 0
             elif(flag):
+                if(IR_sqrt < IR_cutoff):
+                    angleInRad = (rotTotal % 360)*pi/180
+                    map[map_size - 1 - currLoc[0][1] - sin(angleInRad)][currLoc[0][0] + cos(angleInRad)] = 2
+                elif(abs(magnet_data['z'] + 50) < 70):
+                    angleInRad = (rotTotal % 360)*pi/180
+                    map[map_size - 1 - currLoc[0][1] - sin(angleInRad)][currLoc[0][0] + cos(angleInRad)] = 3
                 rotateStatic('l')
                 rotateStatic('l')
-                #if front is blocked due to sources, update the map
-                #else just turn around
             
             printMap()
             prev_encoder = mapUpdate(prev_encoder)
