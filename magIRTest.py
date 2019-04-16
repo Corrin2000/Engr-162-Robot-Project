@@ -2,8 +2,8 @@ from module import *
 
 try:
     while True:
-        magnet_data = readMagnet()
-        IR_sqrt = readIR()
+        magnet_data = sensors.dataMag
+        IR_sqrt = sensors.dataIR
         flag = 1
 
         #dist_front > turn_alert - turn_front_offset
