@@ -12,12 +12,11 @@ class sensorClass(object):
         self.is_running = False
 
         #data storage
-        '''
-        self.dataUltra  = 0
+        self.dataUltra  = [0,0,0]
         self.dataGyro   = 0
         self.dataIR     = 0
         self.dataMag    = 0
-        '''
+        
         self.fake       = fake
 
         self.start()

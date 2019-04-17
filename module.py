@@ -200,6 +200,8 @@ def navMaze():
         print('You pressed ctrl+c..')
         printMap()
         BP.reset_all()
+    finally:
+        sensors.stop()
 
 def sideCorrect(dist_right, dist_left):
     I_right = 0
