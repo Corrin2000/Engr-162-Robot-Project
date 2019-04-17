@@ -34,7 +34,7 @@ front_border = 15
 side_border = 10
 turn_alert = 25
 turn_front_offset = 8
-IR_cutoff = 15
+IR_cutoff = 200
 move_b4_turn = 12
 '''
 Magnet is suposed to sense at 7 in away. Then should pull a uturn
@@ -87,7 +87,7 @@ while flag:
     time.sleep(dT)
 
 import sensorClass
-sensors = sensorClass.sensorClass(0)
+sensors = sensorClass.sensorClass()
 
 def rotateStatic(dir, angle=90):
     # r is right, l is left
@@ -127,14 +127,15 @@ def rotateStaticSub(gyro, target, I):
 
 def navMaze():
     global prev_encoder
+    time.sleep(2*dT)
     try:
         while True:
             flag = 1
             dist_right = sensors.dataUltra[0]
             dist_left = sensors.dataUltra[1]
             dist_front = sensors.dataUltra[2]
-            IR_sqrt = sensors.dataIR
-            magnet_data = sensors.dataMag
+            IR_val = sensors.dataIR
+            magnet_data = readMagnet()
             BP.set_motor_position(BP.PORT_A, 0)
             
             if(dist_left > turn_alert and dist_front > turn_alert and dist_right > turn_alert):
@@ -160,7 +161,7 @@ def navMaze():
                 BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
                 flag = 0
             #elif(dist_front > turn_alert-turn_front_offset):
-            elif(dist_front > turn_alert-turn_front_offset and IR_sqrt < IR_cutoff and abs(magnet_data['z'] + 50) < 70):
+            elif(dist_front > turn_alert-turn_front_offset and IR_val < IR_cutoff and abs(magnet_data['z'] + 50) < 70):
                 flag = 0
                 pass
             elif(dist_right > turn_alert):
@@ -177,12 +178,12 @@ def navMaze():
                 BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
                 flag = 0
             elif(flag):
-                if(IR_sqrt < IR_cutoff):
+                if(IR_val < IR_cutoff):
                     angleInRad = (rotTotal % 360)*pi/180
-                    map[map_size - 1 - currLoc[0][1] - sin(angleInRad)][currLoc[0][0] + cos(angleInRad)] = 2
+                    map[map_size - 1 - currLoc[0][1] - int(sin(angleInRad))][currLoc[0][0] + int(cos(angleInRad))] = 2
                 elif(abs(magnet_data['z'] + 50) < 70):
                     angleInRad = (rotTotal % 360)*pi/180
-                    map[map_size - 1 - currLoc[0][1] - sin(angleInRad)][currLoc[0][0] + cos(angleInRad)] = 3
+                    map[map_size - 1 - currLoc[0][1] - int(sin(angleInRad))][currLoc[0][0] + int(cos(angleInRad))] = 3
                 rotateStatic('l')
                 rotateStatic('l')
             
@@ -237,6 +238,16 @@ def angleCorrect(gyroAbs):
         print('You pressed ctrl+c..')
         BP.reset_all()
 
+def readMagnet(fake = 0):
+    if(not fake):
+        accel_data = mag.mpu9250.readAccel()
+        magnet_data = mag.mpu9250.readMagnet()
+        magX=WindowFilterDyn(accelx,mag.dly,InvGaussFilter(mag.adv,accel_data['x'], mag.biases[0],mag.std[0],mag.count))
+        magY=WindowFilterDyn(accely,mag.dly,InvGaussFilter(mag.adv,accel_data['y'], mag.biases[1],mag.std[1],mag.count))
+        magZ=WindowFilterDyn(accelz,mag.dly,InvGaussFilter(mag.adv,accel_data['z'], mag.biases[2],mag.std[2],mag.count))
+        #print(magnet_data)
+    return magnet_data
+
 def moveDist(target_dist):
     zeroEncoder()
     global prev_encoder
@@ -258,59 +269,6 @@ def moveDist(target_dist):
         print('You pressed ctrl+c..')
         BP.reset_all()
     BP.set_motor_power(BP.PORT_B+BP.PORT_C, 0)
-
-def turnToPt(currentX, currentY, targetX, targetY, currentAngle):
-    angle = 180/pi*atan2((targetY - currentY), (targetX - currentX + 0.000001))
-    if angle > currentAngle:
-        rotateStatic('l', angle - currentAngle)
-    else:
-        rotateStatic('r', currentAngle - angle)
-    return angle
-
-def moveGrid(dir,bin,curr,target): #for dir, 0 is x, 1 is y. for bin, 0 is no sensor, 1 is sensor
-    I = 0
-    zeroEncoder()
-    while curr[dir] < target[dir]:
-        if(bin):
-            IR_data = sensors.dataIR
-            AvgIR = (IR_data[0]+IR_data[1])/2
-            print('One: %d Two: %d Avg: %d' % (IR_data[0], IR_data[1], AvgIR))
-
-        e = target[dir] - curr[dir]
-        P = front_kP * e
-        I += front_kI * e * dT/2
-        spd = P + I
-
-        if(bin and (AvgIR > IR_cutoff)): #check magnet stuff #Check current direction?
-            BP.set_motor_power(BP.PORT_B+BP.PORT_C, 0)
-            gridAvoid(curr,e)
-        else:
-            gyro = sensors.dataGyro
-            angleCorrection = angleCorrect(gyro[0])
-            BP.set_motor_power(BP.PORT_C, spd - angleCorrection)
-            BP.set_motor_power(BP.PORT_B, spd + angleCorrection)
-
-        motor_encoder = BP.get_motor_encoder(BP.PORT_B)
-        curr[dir] = motor_encoder * pow(diam*2.54/2,2)*pi / 360
-        print('Distance Remaining: %.2f' % e)
-
-        time.sleep(dT)
-
-def nav2ptAvoidance(curr,target):
-    try:
-        moveGrid(0,1,curr,target)
-        rotateStatic('l')
-        moveGrid(1,1,curr,target)
-        BP.reset_all()
-    except KeyboardInterrupt:
-        print('You pressed ctrl+c..')
-        BP.reset_all()
-
-def gridAvoid(curr,distRemain):
-    rotateStatic('l')
-    moveGrid(0,1,curr,[curr[0]-conversion/2,curr[1]])
-    rotateStatic('r')
-    moveGrid(0,1,curr,[curr[0],curr[1]+1+distRemain])
 
 def zeroEncoder():
     global prev_encoder

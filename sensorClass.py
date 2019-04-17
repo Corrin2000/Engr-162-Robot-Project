@@ -7,7 +7,7 @@ from IR_Functions import IR_Read
 from IMUFilters import genWindow, WindowFilterDyn, InvGaussFilter
 
 class sensorClass(object):
-    def __init__(self, fake):
+    def __init__(self, fake=0):
         self._timer     = None
         self.is_running = False
 
@@ -27,7 +27,7 @@ class sensorClass(object):
         self.readGyro(self.fake)
         self.readUltra(self.fake)
         self.readIR(self.fake)
-        self.readMagnet(self.fake)
+        #self.readMagnet(self.fake)
 
     def start(self):
         if not self.is_running:
@@ -62,9 +62,9 @@ class sensorClass(object):
     def readIR(self, fake = 0):
         if(not fake):
             IR = IR_Read()
-            IR_sqrt = IR[0]**0.5 + IR[1]**0.5
+            IR_val = IR[0] + IR[1]
             #print('IR Sqrt: %d' % IR_sqrt)
-        self.dataIR = IR_sqrt
+        self.dataIR = IR_val
 
     def readMagnet(self, fake = 0):
         if(not fake):

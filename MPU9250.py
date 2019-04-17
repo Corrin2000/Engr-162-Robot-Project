@@ -214,7 +214,7 @@ class MPU9250:
         y = round(y*self.ares, 3)
         z = round(z*self.ares, 3)
 
-        return [x, y, z]
+        return {"x":x, "y":y, "z":z}
 
     ## Read gyro
     #  @param [in] self The object pointer.
@@ -232,7 +232,7 @@ class MPU9250:
         y = round(y*self.gres, 3)
         z = round(z*self.gres, 3)
 
-        return [x, y, z]
+        return {"x":x, "y":y, "z":z}
 
     ## Read magneto
     #  @param [in] self The object pointer.
