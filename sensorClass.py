@@ -5,6 +5,7 @@ from threading import Timer
 from module import BP, dT, accelx, accely, accelz, us_front, us_left, us_right, gyro_port
 from IR_Functions import IR_Read
 from IMUFilters import genWindow, WindowFilterDyn, InvGaussFilter
+from numpy import zeros
 
 class sensorClass(object):
     def __init__(self, fake=0):
@@ -15,10 +16,11 @@ class sensorClass(object):
         self.dataUltra  = [0,0,0]
         self.dataGyro   = 0
         self.dataIR     = 0
+        self.listIR     = zeros(8)
         self.dataMag    = 0
+        self.index      = 0
         
         self.fake       = fake
-
         self.start()
 
     def _run(self):
@@ -27,11 +29,10 @@ class sensorClass(object):
         self.readGyro(self.fake)
         self.readUltra(self.fake)
         self.readIR(self.fake)
-        #self.readMagnet(self.fake)
 
     def start(self):
         if not self.is_running:
-            self._timer = Timer(dT, self._run)
+            self._timer = Timer(2*dT, self._run)
             self._timer.start()
             self.is_running = True
 
@@ -50,28 +51,24 @@ class sensorClass(object):
             dist_front = BP.get_sensor(us_front)
             if(dist_front > 50):
                 dist_front = 50
-            #print("front: %2d right: %2d left: %2d" % (dist_front, dist_right, dist_left))
         self.dataUltra = [dist_right, dist_left, dist_front]
     
     def readGyro(self, fake = 0):
         if(not fake):
             gyro = BP.get_sensor(gyro_port)
-            #print('gyro abs: %d' % (gyro[0]))
         self.dataGyro = gyro
 
     def readIR(self, fake = 0):
         if(not fake):
             IR = IR_Read()
+            if(IR[0] > 500):
+                IR[0] = 0
+            if(IR[1] > 500):
+                IR[1] = 0
             IR_val = IR[0] + IR[1]
-            #print('IR Sqrt: %d' % IR_sqrt)
-        self.dataIR = IR_val
-
-    def readMagnet(self, fake = 0):
-        if(not fake):
-            accel_data = mag.mpu9250.readAccel()
-            magnet_data = mag.mpu9250.readMagnet()
-            magX=WindowFilterDyn(accelx,mag.dly,InvGaussFilter(mag.adv,accel_data['x'], mag.biases[0],mag.std[0],mag.count))
-            magY=WindowFilterDyn(accely,mag.dly,InvGaussFilter(mag.adv,accel_data['y'], mag.biases[1],mag.std[1],mag.count))
-            magZ=WindowFilterDyn(accelz,mag.dly,InvGaussFilter(mag.adv,accel_data['z'], mag.biases[2],mag.std[2],mag.count))
-            #print(magnet_data)
-        self.dataMag = magnet_data
+            print('one: %3d two: %d'%(IR[0],IR[1]))
+        self.listIR[self.index] = IR_val
+        print('IR val: %3d IR runAvg: %d' % (IR_val, self.dataIR))
+        self.index += 1
+        self.index = self.index % len(self.listIR)
+        self.dataIR = sum(self.listIR)/len(self.listIR)

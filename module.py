@@ -34,7 +34,7 @@ front_border = 15
 side_border = 10
 turn_alert = 25
 turn_front_offset = 8
-IR_cutoff = 200
+IR_cutoff = 120
 move_b4_turn = 12
 '''
 Magnet is suposed to sense at 7 in away. Then should pull a uturn
