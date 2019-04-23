@@ -66,9 +66,9 @@ class sensorClass(object):
             if(IR[1] > 500):
                 IR[1] = 0
             IR_val = IR[0] + IR[1]
-            print('one: %3d two: %d'%(IR[0],IR[1]))
+            #print('one: %3d two: %d'%(IR[0],IR[1]))
         self.listIR[self.index] = IR_val
-        print('IR val: %3d IR runAvg: %d' % (IR_val, self.dataIR))
+        #print('IR val: %3d IR runAvg: %d' % (IR_val, self.dataIR))
         self.index += 1
         self.index = self.index % len(self.listIR)
         self.dataIR = sum(self.listIR)/len(self.listIR)

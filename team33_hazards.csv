@@ -1,0 +1,8 @@
+Team: 33
+Map: 0
+Notes: This maps hazard information.
+
+Resource Type,Parameter of Interest,Parameter Value,Resource X Coordinate,Resource Y Coordinaten
+
+Infrared Beacon,Intensity,0.0,120,320
+Infrared Beacon,Intensity,0.0,400,280

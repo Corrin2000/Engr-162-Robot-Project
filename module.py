@@ -25,7 +25,7 @@ BP.reset_all()
 #constant initialization
 dT = 0.05
 diam = 2.5 #of wheel, in inches
-spd_front = 30
+spd_front = 25
 rotTotal = 0
 conversion = 40 #40 cm per grid square
 
@@ -33,9 +33,10 @@ conversion = 40 #40 cm per grid square
 front_border = 15
 side_border = 10
 turn_alert = 25
-turn_front_offset = 8
+turn_front_offset = 2
 IR_cutoff = 120
-move_b4_turn = 12
+move_b4_turn = 18
+zMagModifier = 114
 '''
 Magnet is suposed to sense at 7 in away. Then should pull a uturn
 '''
@@ -48,18 +49,21 @@ front_kI = 1.0
 side_kP = 3.0
 side_kI = 3.0
 angle_kP = 1.0
-angle_kI = 1.5
+angle_kI = 1.8
 kRot = 4.8 #paper: 4.8   URSC table = 4.8
 
 #Mapping Init
-notes = 'This is a map of the maze.'
-origin = [0,0] #stored in grid points. [x,y]
-map_size = 8 #length of each side on the map
+mapNotes = 'This is a map of the maze.'
+hazardNotes = 'This maps hazard information.'
+origin = [0,4] #stored in grid points. [x,y]
+map_size = 17 #length of each side on the map
 prev_encoder = 0
 
 #initialize the map and the origin
 map = np.zeros((map_size,map_size),np.int8)
 currLoc = [[origin[0],origin[1]],[origin[0]*conversion,origin[1]*conversion]] #stored in [grid points, cm]
+hazards = []
+hazardMap = []
 
 #IMU Setup
 accelx=genWindow(mag.width,0)
@@ -73,6 +77,8 @@ us_front = BP.PORT_3
 BP.set_sensor_type(us_front, BP.SENSOR_TYPE.EV3_ULTRASONIC_CM)
 us_right = 6
 us_left = 5
+listIR = np.zeros(8)
+indexIR = 0
 
 #sensor warmup
 flag = 1
@@ -86,29 +92,26 @@ while flag:
         flag = 1
     time.sleep(dT)
 
-import sensorClass
-sensors = sensorClass.sensorClass()
-
 def rotateStatic(dir, angle=90):
     # r is right, l is left
     I = 0
-    gyro = sensors.dataGyro
+    gyro = readGyro()
     global rotTotal
     try:
         if(dir == 'r'):
             target = rotTotal + angle
             while gyro[0] < target:
-                gyro = sensors.dataGyro
+                gyro = readGyro()
                 I = rotateStaticSub(gyro, target, I)
         elif(dir=='l'):
             target = rotTotal - angle
             while gyro[0] > target:
-                gyro = sensors.dataGyro
+                gyro = readGyro()
                 I = rotateStaticSub(gyro, target, I)
         BP.set_motor_power(BP.PORT_B+BP.PORT_C,0)
         rotTotal = target
-        gyro = sensors.dataGyro
-        print('gyro abs: %3d' % gyro[0])
+        gyro = readGyro()
+        #print('gyro abs: %3d' % gyro[0])
         zeroEncoder()
     except KeyboardInterrupt:
         print('You pressed ctrl+c..')
@@ -120,58 +123,53 @@ def rotateStaticSub(gyro, target, I):
     I += rotate_kI * e * dT/2
     turnSpd = P + I
     print('gyro abs: %3d target: %3d e: %3d' % (gyro[0], target, e))
-    BP.set_motor_power(BP.PORT_B, turnSpd)
-    BP.set_motor_power(BP.PORT_C, -turnSpd)
+    BP.set_motor_dps(BP.PORT_B, turnSpd*11.5)
+    BP.set_motor_dps(BP.PORT_C, -turnSpd*11.5)
     time.sleep(dT)
     return I
 
 def navMaze():
     global prev_encoder
-    time.sleep(2*dT)
+    #time.sleep(3*dT)
     try:
         while True:
             flag = 1
-            dist_right = sensors.dataUltra[0]
-            dist_left = sensors.dataUltra[1]
-            dist_front = sensors.dataUltra[2]
-            IR_val = sensors.dataIR
+            dist_right, dist_left, dist_front = readUltra()
+            print("front: %2d right: %2d left: %2d" % (dist_front, dist_right, dist_left))
+            IR_val = readIR()
+            print('IR val: %d' % IR_val)
             magnet_data = readMagnet()
+            print(magnet_data)
             BP.set_motor_position(BP.PORT_A, 0)
             
-            if(dist_left > turn_alert and dist_front > turn_alert and dist_right > turn_alert):
-                BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
-                map[map_size - 1 - origin[1]][origin[0]] = 5
-                map[map_size - 1 - currLoc[0][1]][currLoc[0][0]] = 4
-                printMap()
-                while(BP.get_motor_encoder(BP.PORT_A) < 90):
-                    BP.set_motor_power(BP.PORT_A,20)
-                BP.set_motor_power(BP.PORT_A,0)
+            if(dist_left > 3*turn_alert and dist_front > 3*turn_alert and dist_right > 3*turn_alert):
+                moveDist(move_b4_turn)
+                endMaze()
                 break
             elif(dist_left > turn_alert):
                 moveDist(move_b4_turn)
                 rotateStatic('l')
-                dist_left = sensors.dataUltra[1]
+                dist_left = grovepi.ultrasonicRead(us_left)
                 zeroEncoder()
                 while dist_left > turn_alert:
-                    dist_left = sensors.dataUltra[1]
-                    BP.set_motor_power(BP.PORT_C+BP.PORT_B,spd_front)
+                    dist_left = grovepi.ultrasonicRead(us_left)
+                    BP.set_motor_dps(BP.PORT_C+BP.PORT_B,spd_front*11.5)
                     print('moving until sees lefthand wall')
                     printMap()
                     prev_encoder = mapUpdate(prev_encoder)
                 BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
                 flag = 0
-            #elif(dist_front > turn_alert-turn_front_offset):
-            elif(dist_front > turn_alert-turn_front_offset and IR_val < IR_cutoff and abs(magnet_data['z'] + 50) < 70):
+            elif(dist_front > turn_alert-turn_front_offset and IR_val < IR_cutoff and abs(magnet_data['z'] + zMagModifier) < 70):
                 flag = 0
                 pass
             elif(dist_right > turn_alert):
                 moveDist(move_b4_turn)
                 rotateStatic('r')
-                dist_right = sensors.dataUltra[0]
+                dist_right = grovepi.ultrasonicRead(us_right)
                 zeroEncoder()
                 while dist_right > turn_alert:
-                    dist_right = sensors.dataUltra[0]
-                    BP.set_motor_power(BP.PORT_C+BP.PORT_B,spd_front)
+                    dist_right = grovepi.ultrasonicRead(us_right)
+                    BP.set_motor_dps(BP.PORT_C+BP.PORT_B,spd_front*11.5)
                     print('moving until sees righthand wall')
                     printMap()
                     prev_encoder = mapUpdate(prev_encoder)
@@ -180,29 +178,34 @@ def navMaze():
             elif(flag):
                 if(IR_val < IR_cutoff):
                     angleInRad = (rotTotal % 360)*pi/180
-                    map[map_size - 1 - currLoc[0][1] - int(sin(angleInRad))][currLoc[0][0] + int(cos(angleInRad))] = 2
-                elif(abs(magnet_data['z'] + 50) < 70):
+                    hazards.append([map_size - 1 - currLoc[0][1] - int(sin(angleInRad)),currLoc[0][0] + int(cos(angleInRad)),2])
+                    hazardStr = 'Infrared Beacon,Intensity,{},{},{}'.format(IR_val,conversion*(hazards[-1][1]-origin[0]),conversion*(hazards[-1][0]-origin[1]))
+                    hazardMap.append([hazardStr])
+                elif(abs(magnet_data['z'] + zMagModifier) < 70):
                     angleInRad = (rotTotal % 360)*pi/180
-                    map[map_size - 1 - currLoc[0][1] - int(sin(angleInRad))][currLoc[0][0] + int(cos(angleInRad))] = 3
+                    hazards.append([map_size - 1 - currLoc[0][1] - int(sin(angleInRad)),currLoc[0][0] + int(cos(angleInRad)),3])
+                    hazardStr = 'Magnetic Beacon,Field Strength,{},{},{}'.format(magnet_data['z']+zMagModifier,conversion*(hazards[-1][1]-origin[0]),conversion*(hazards[-1][0]-origin[1]))
+                    hazardMap.append([hazardStr])
                 rotateStatic('l')
                 rotateStatic('l')
             
             printMap()
             prev_encoder = mapUpdate(prev_encoder)
-            gyro = sensors.dataGyro
+            gyro = readGyro()
             rightSideCorrection, leftSideCorrection = sideCorrect(dist_right, dist_left)
             angleCorrection = angleCorrect(gyro[0])
-            print('speed: %d R_correct: %d L_correct: %d' % (spd_front, rightSideCorrection - angleCorrection, leftSideCorrection + angleCorrection))
-            BP.set_motor_power(BP.PORT_C, spd_front + rightSideCorrection - angleCorrection)
-            BP.set_motor_power(BP.PORT_B, spd_front + leftSideCorrection + angleCorrection)
+            #print('speed: %d R_correct: %d L_correct: %d' % (spd_front, rightSideCorrection - angleCorrection, leftSideCorrection + angleCorrection))
+            BP.set_motor_dps(BP.PORT_C, (spd_front + rightSideCorrection - angleCorrection)*11.5)
+            BP.set_motor_dps(BP.PORT_B, (spd_front + leftSideCorrection + angleCorrection)*11.5)
 
             time.sleep(dT)
     except KeyboardInterrupt:
         print('You pressed ctrl+c..')
-        printMap()
+        endMaze()
         BP.reset_all()
     finally:
-        sensors.stop()
+        endMaze()
+        BP.reset_all()
 
 def sideCorrect(dist_right, dist_left):
     I_right = 0
@@ -238,6 +241,41 @@ def angleCorrect(gyroAbs):
         print('You pressed ctrl+c..')
         BP.reset_all()
 
+def readUltra(fake = 0):
+    if(not fake):
+        dist_right = grovepi.ultrasonicRead(us_right)
+        if(dist_right > 50):
+            dist_right = 50
+        dist_left = grovepi.ultrasonicRead(us_left)
+        if(dist_left > 50):
+            dist_left = 50
+        dist_front = BP.get_sensor(us_front)
+        if(dist_front > 50):
+            dist_front = 50
+    return dist_right, dist_left, dist_front
+
+def readGyro(fake = 0):
+    if(not fake):
+        gyro = BP.get_sensor(gyro_port)
+    return gyro
+
+def readIR(fake = 0):
+    global indexIR
+    if(not fake):
+        if(not fake):
+            IR = IR_Read()
+            if(IR[0] > 500):
+                IR[0] = 0
+            if(IR[1] > 500):
+                IR[1] = 0
+            IR_val = IR[0] + IR[1]
+            #print('one: %3d two: %d'%(IR[0],IR[1]))
+        listIR[indexIR] = IR_val
+        #print('IR val: %3d IR runAvg: %d' % (IR_val, self.dataIR))
+        indexIR += 1
+        indexIR = indexIR % len(listIR)
+        return sum(listIR)/len(listIR)
+
 def readMagnet(fake = 0):
     if(not fake):
         accel_data = mag.mpu9250.readAccel()
@@ -255,10 +293,10 @@ def moveDist(target_dist):
     try:
         while curr_dist < target_dist:
             e_front = target_dist - curr_dist
-            gyro = sensors.dataGyro
+            gyro = readGyro()
             angleCorrection = angleCorrect(gyro[0])
-            BP.set_motor_power(BP.PORT_C, spd_front - angleCorrection)
-            BP.set_motor_power(BP.PORT_B, spd_front + angleCorrection)
+            BP.set_motor_dps(BP.PORT_C, (spd_front - angleCorrection)*11.5)
+            BP.set_motor_dps(BP.PORT_B, (spd_front + angleCorrection)*11.5)
             motor_encoder = BP.get_motor_encoder(BP.PORT_B)
             curr_dist = motor_encoder * diam * 2.54 * pi / 360
             print('distance remaining: %d' % e_front)
@@ -275,6 +313,17 @@ def zeroEncoder():
     BP.offset_motor_encoder(BP.PORT_B, BP.get_motor_encoder(BP.PORT_B))
     BP.offset_motor_encoder(BP.PORT_C, BP.get_motor_encoder(BP.PORT_C))
     prev_encoder = 0
+
+def endMaze():
+    BP.set_motor_power(BP.PORT_C+BP.PORT_B,0)
+    map[map_size - 1 - origin[1]][origin[0]] = 5
+    map[map_size - 1 - currLoc[0][1]][currLoc[0][0]] = 4
+    for hazard in hazards:
+        map[hazard[0]][hazard[1]] = hazard[2]
+    printMap()
+    while(BP.get_motor_encoder(BP.PORT_A) < 90):
+        BP.set_motor_power(BP.PORT_A,20)
+    BP.set_motor_power(BP.PORT_A,0)
 
 def mapUpdate(prev_encoder):
     angleInRad = (rotTotal % 360)*pi/180
@@ -294,6 +343,12 @@ def mapUpdate(prev_encoder):
 
 def printMap():
     f1 = open('team33_map.csv', 'w+')
-    print('Team: 33\nMap: 0\nUnit Length: 40\nUnit: cm\nOrigin: (%d,%d)\nNotes: %s' %(origin[0],origin[1],notes),file=f1)
+    print('Team: 33\nMap: 0\nUnit Length: 40\nUnit: cm\nOrigin: (%d,%d)\nNotes: %s' %(origin[0],origin[1],mapNotes),file=f1)
     print('\n'.join([','.join(['{:}'.format(item) for item in row]) for row in map]),file=f1)
     f1.close()
+
+    f2 = open('team33_hazards.csv', 'w+')
+    print('Team: 33\nMap: 0\nNotes: %s\n' %(hazardNotes),file=f2)
+    print('Resource Type,Parameter of Interest,Parameter Value,Resource X Coordinate,Resource Y Coordinaten\n', file=f2)
+    print('\n'.join([','.join(['{:}'.format(item) for item in row]) for row in hazardMap]),file=f2)
+    f2.close()
